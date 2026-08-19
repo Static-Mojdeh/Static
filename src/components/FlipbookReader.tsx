@@ -14,11 +14,10 @@ import {
   Maximize,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PageFlip } from 'page-flip';
 import type { PageFlipInstance, PageFlipOptions } from 'page-flip';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 const RENDER_SCALE = 1.5;
 const MAX_ZOOM = 400;
@@ -59,7 +58,6 @@ export default function FlipbookReader({
   const isZoomedRef = useRef(false);
   const pendingPageRef = useRef(startPage);
   const onPageChangeRef = useRef(onPageChange);
-  const mountedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,9 +179,6 @@ export default function FlipbookReader({
 
   // ── Single mount effect: load PDF, init flipbook ──
   useEffect(() => {
-    if (mountedRef.current) return;
-    mountedRef.current = true;
-
     let cancelled = false;
 
     async function init() {
@@ -481,7 +476,7 @@ export default function FlipbookReader({
             <p className="mt-5 font-serif text-xl font-bold text-[#fffaf1]">This book couldn't open</p>
             <p className="mt-2 max-w-sm text-sm text-[#c8d4c7]">{error}</p>
             <div className="mt-6 flex gap-3">
-              <button onClick={() => { mountedRef.current = false; window.location.reload(); }} className="flex items-center gap-2 rounded-full bg-[#d48b55] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#bd7443]">
+              <button onClick={() => window.location.reload()} className="flex items-center gap-2 rounded-full bg-[#d48b55] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#bd7443]">
                 <RotateCw size={16} /> Try again
               </button>
               <button onClick={onClose} className="flex items-center gap-2 rounded-full border border-[#d48b55] px-5 py-2.5 text-sm font-bold text-[#d48b55] transition hover:bg-[#d48b55] hover:text-white">
