@@ -171,28 +171,15 @@ export default function FlipbookReader({
     [],
   );
 
-  const prefetchPages = useCallback(
-    async (pageNum: number) => {
-      const total = totalPagesRef.current;
-      const tasks: Promise<unknown>[] = [];
-      for (let i = 1; i <= PREFETCH_RANGE; i++) {
-        const next = pageNum + i;
-        const prev = pageNum - i;
-        if (next < total && !pageCacheRef.current.has(next)) tasks.push(renderPage(next));
-        if (prev >= 0 && !pageCacheRef.current.has(prev)) tasks.push(renderPage(prev));
-      }
-      await Promise.all(tasks);
-    },
-    [renderPage],
-  );
-
   // ── Update a page's DOM element with rendered image ──
-  // MUST be defined before initFlipbook which uses it
+  // MUST be defined before initFlipbook/prefetch which use it
   const updatePageDOM = useCallback((pageNum: number, rendered: RenderedPage) => {
     const container = htmlContainerRef.current;
     if (!container) return;
     const pageEl = container.querySelector(`.stf__item[data-page-num="${pageNum}"]`);
     if (!pageEl) return;
+    // Skip if already has an img (not just the spinner placeholder)
+    if (pageEl.querySelector('img')) return;
     pageEl.innerHTML = '';
     const img = document.createElement('img');
     img.src = rendered.dataUrl;
@@ -205,6 +192,31 @@ export default function FlipbookReader({
     img.draggable = false;
     pageEl.appendChild(img);
   }, []);
+
+  // ── Ensure a page is rendered AND displayed in the DOM ──
+  const ensurePageDisplayed = useCallback(
+    async (pageNum: number) => {
+      const rendered = await renderPage(pageNum);
+      if (rendered) updatePageDOM(pageNum, rendered);
+    },
+    [renderPage, updatePageDOM],
+  );
+
+  // ── Prefetch nearby pages: render to cache AND update DOM ──
+  const prefetchPages = useCallback(
+    async (pageNum: number) => {
+      const total = totalPagesRef.current;
+      const tasks: Promise<void>[] = [];
+      for (let i = 1; i <= PREFETCH_RANGE; i++) {
+        const next = pageNum + i;
+        const prev = pageNum - i;
+        if (next < total) tasks.push(ensurePageDisplayed(next));
+        if (prev >= 0) tasks.push(ensurePageDisplayed(prev));
+      }
+      await Promise.all(tasks);
+    },
+    [ensurePageDisplayed],
+  );
 
   // ── Initialize StPageFlip ──
   const initFlipbook = useCallback(async () => {
@@ -256,6 +268,8 @@ export default function FlipbookReader({
       const ev = e as { data: number };
       setCurrentPage(ev.data);
       onPageChange?.(ev.data + 1, totalPagesRef.current);
+      // Render and display the current page immediately, then prefetch neighbors
+      ensurePageDisplayed(ev.data);
       prefetchPages(ev.data);
     });
 
@@ -269,8 +283,7 @@ export default function FlipbookReader({
     // Render the start page and nearby pages
     const start = pendingPageRef.current;
     for (let i = Math.max(0, start - 1); i <= Math.min(totalPagesRef.current - 1, start + PREFETCH_RANGE); i++) {
-      const rendered = await renderPage(i);
-      if (rendered) updatePageDOM(i, rendered);
+      await ensurePageDisplayed(i);
     }
 
     if (pendingPageRef.current > 0) {
@@ -278,7 +291,7 @@ export default function FlipbookReader({
       setCurrentPage(pendingPageRef.current);
       onPageChange?.(pendingPageRef.current + 1, totalPagesRef.current);
     }
-  }, [computeLayout, renderPage, prefetchPages, onPageChange, updatePageDOM]);
+  }, [computeLayout, renderPage, prefetchPages, onPageChange, updatePageDOM, ensurePageDisplayed]);
 
   // ── Load PDF and initialize ──
   const loadPdf = useCallback(async () => {
