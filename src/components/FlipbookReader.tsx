@@ -83,8 +83,9 @@ export default function FlipbookReader({
     if (rect.width === 0 || rect.height === 0) return { width: 400, height: 600, portrait: true };
     const portrait = rect.width < 700;
     const padding = 20;
+    const verticalPadding = 56;
     const availW = rect.width - padding;
-    const availH = rect.height - padding;
+    const availH = rect.height - verticalPadding;
     const aspect = pageAspectRef.current || 0.707;
 
     let pageW: number, pageH: number;
@@ -499,9 +500,9 @@ export default function FlipbookReader({
         {/* Flipbook */}
         <div
           className="flex h-full w-full items-center justify-center"
-          style={{ transform: panMode ? transform : 'none', transformOrigin: 'center center', transition: panStateRef.current.panning ? 'none' : 'transform 0.2s ease-out' }}
+          style={{ transform: panMode ? transform : 'none', transformOrigin: 'center center', transition: panStateRef.current.panning ? 'none' : 'transform 0.2s ease-out', paddingTop: '28px', paddingBottom: '28px' }}
         >
-          <div ref={htmlContainerRef} className="flipbook-container" style={{ touchAction: panMode ? 'none' : 'manipulation' }} />
+          <div ref={htmlContainerRef} className="flipbook-container" style={{ touchAction: panMode ? 'none' : 'manipulation', maxHeight: '100%' }} />
         </div>
       </div>
 
