@@ -252,22 +252,25 @@ export default function FlipbookReader({
           setIsPortrait((e as { data: 'portrait' | 'landscape' }).data === 'portrait');
         });
 
+        (pf as unknown as PageFlipInstance).on('init', (e: unknown) => {
+          const ev = e as { page: number };
+          setCurrentPage(ev.page);
+          onPageChangeRef.current?.(ev.page + 1, totalPagesRef.current);
+          ensurePageDisplayed(ev.page);
+          prefetchPages(ev.page);
+        });
+
         setBookReady(true);
         setLoading(false);
 
-        // Render initial pages
+        // Render initial pages around the start page
         const start = pendingPageRef.current;
         for (let i = Math.max(0, start - 1); i <= Math.min(totalPagesRef.current - 1, start + PREFETCH_RANGE); i++) {
           if (cancelled) return;
           await ensurePageDisplayed(i);
         }
 
-        if (pendingPageRef.current > 0) {
-          (pf as unknown as PageFlipInstance).turnToPage(pendingPageRef.current);
-          setCurrentPage(pendingPageRef.current);
-        }
-
-        prefetchPages(pendingPageRef.current);
+        prefetchPages(start);
       } catch (err) {
         if (cancelled) return;
         console.error('PDF load error:', err);
