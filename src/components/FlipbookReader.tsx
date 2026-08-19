@@ -233,7 +233,7 @@ export default function FlipbookReader({
           const el = document.createElement('div');
           el.className = 'stf__item';
           el.dataset.pageNum = String(i);
-          el.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#fffaf1';
+          el.style.cssText = 'width:100%;height:100%;background:#fffaf1';
           el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#a2673e" stroke-width="2" xmlns="http://www.w3.org/2000/svg"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></div>';
           pageElements.push(el);
         }
@@ -490,9 +490,9 @@ export default function FlipbookReader({
         {/* Flipbook */}
         <div
           className="flex h-full w-full items-center justify-center"
-          style={{ transform, transformOrigin: 'center center', transition: panStateRef.current.panning ? 'none' : 'transform 0.2s ease-out' }}
+          style={{ transform: panMode ? transform : 'none', transformOrigin: 'center center', transition: panStateRef.current.panning ? 'none' : 'transform 0.2s ease-out' }}
         >
-          <div ref={htmlContainerRef} className="flipbook-container h-full w-full" style={{ touchAction: panMode ? 'none' : 'manipulation' }} />
+          <div ref={htmlContainerRef} className="flipbook-container" style={{ touchAction: panMode ? 'none' : 'manipulation' }} />
         </div>
       </div>
 
