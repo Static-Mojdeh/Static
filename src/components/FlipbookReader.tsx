@@ -227,7 +227,7 @@ export default function FlipbookReader({
     const options: PageFlipOptions = {
       width,
       height,
-      size: 'fixed',
+      size: 'stretch',
       maxShadowOpacity: 0.5,
       showCover: true,
       mobileScrollSupport: false,
@@ -298,15 +298,9 @@ export default function FlipbookReader({
     setError(null);
     setBookReady(false);
     try {
-      // Fetch the PDF as a blob to avoid CORS issues with range requests
-      const response = await fetch(pdfUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-
       const loadingTask = pdfjsLib.getDocument({
-        data: arrayBuffer,
-        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/cmaps/',
+        url: pdfUrl,
+        cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
         cMapPacked: true,
       });
       loadingTaskRef.current = loadingTask;
@@ -325,7 +319,8 @@ export default function FlipbookReader({
       prefetchPages(pendingPageRef.current);
     } catch (err) {
       console.error('PDF load error:', err);
-      setError('We couldn\'t open this book. The file may be missing or damaged.');
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`We couldn't open this book. ${msg}`);
       setLoading(false);
     }
   }, [pdfUrl, initFlipbook, prefetchPages]);
@@ -348,21 +343,16 @@ export default function FlipbookReader({
     };
   }, [loadPdf]);
 
-  // ── Resize handling: destroy and reinit flipbook with new dimensions ──
-  const reinitFlipbook = useCallback(async () => {
-    if (!bookReady) return;
-    // Destroy old instance
-    if (flipRef.current) {
-      try { flipRef.current.destroy(); } catch { /* noop */ }
-      flipRef.current = null;
-    }
-    // Clear the container
-    if (htmlContainerRef.current) {
-      htmlContainerRef.current.innerHTML = '';
-    }
-    // Reinit with new dimensions
-    await initFlipbook();
-  }, [bookReady, initFlipbook]);
+  // ── Resize handling: just update the flipbook, don't destroy/recreate ──
+  const handleResize = useCallback(() => {
+    if (!flipRef.current || !bookReady) return;
+    const { width, height, portrait } = computeLayout();
+    layoutRef.current = { width, height, portrait };
+    setIsPortrait(portrait);
+    try {
+      (flipRef.current as unknown as PageFlipInstance).update();
+    } catch { /* noop */ }
+  }, [computeLayout, bookReady]);
 
   useEffect(() => {
     const area = readerAreaRef.current;
@@ -370,14 +360,14 @@ export default function FlipbookReader({
     let resizeTimer: ReturnType<typeof setTimeout>;
     const observer = new ResizeObserver(() => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => reinitFlipbook(), 200);
+      resizeTimer = setTimeout(handleResize, 200);
     });
     observer.observe(area);
     return () => {
       observer.disconnect();
       clearTimeout(resizeTimer);
     };
-  }, [reinitFlipbook, bookReady]);
+  }, [handleResize, bookReady]);
 
   // ── Fullscreen ──
   const toggleFullscreen = useCallback(() => {
@@ -630,12 +620,8 @@ export default function FlipbookReader({
         >
           <div
             ref={htmlContainerRef}
-            className="flipbook-container"
-            style={{
-              touchAction: panMode ? 'none' : 'manipulation',
-              width: bookReady ? `${layoutRef.current.width * (isPortrait ? 1 : 2)}px` : '100%',
-              height: bookReady ? `${layoutRef.current.height}px` : '100%',
-            }}
+            className="flipbook-container h-full w-full"
+            style={{ touchAction: panMode ? 'none' : 'manipulation' }}
           />
         </div>
       </div>
