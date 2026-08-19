@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  ArrowRight,
   BookOpen,
   Bookmark,
   BookmarkCheck,
   Heart,
-  Minimize2,
-  Maximize2,
   Pause,
   Play,
   Sparkles,
   Volume2,
+  VolumeX,
   Gift,
   X,
   Check,
@@ -29,12 +27,10 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
   const { user } = useAuth();
   const totalPages = book.page_count || 1;
   const [pageNum, setPageNum] = useState(1);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showTreasure, setShowTreasure] = useState(false);
   const [showAudio, setShowAudio] = useState(false);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { progress, saveProgress } = useReadingProgress(book.id, user?.id ?? null);
@@ -70,24 +66,7 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
     };
   }, []);
 
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen?.();
-      setIsFullscreen(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handler);
-    return () => document.removeEventListener('fullscreenchange', handler);
-  }, []);
-
   const isTreasurePage = book.treasure_active && book.treasure_page === pageNum;
-  const percentRead = Math.round((pageNum / totalPages) * 100);
 
   const toggleAudio = () => {
     if (!audioRef.current) return;
@@ -108,75 +87,82 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
     return result;
   };
 
-  const handlePageChange = useCallback((page: number, total: number) => {
+  const handlePageChange = useCallback((page: number) => {
     setPageNum(page);
-    if (total) {
-      // total comes from the actual PDF
-    }
   }, []);
 
-  return (
-    <div
-      ref={containerRef}
-      className={`mt-8 overflow-hidden rounded-[2rem] border border-[#d8c7a8] bg-[#fffaf1] shadow-lg transition-all ${
-        isFullscreen ? 'fixed inset-0 z-50 mt-0 rounded-none border-0' : 'p-4 sm:p-6'
-      }`}
-    >
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button onClick={onClose} className="flex items-center gap-2 font-bold text-[#a2673e] transition hover:text-[#8a5438]">
-          <ArrowRight size={17} className="rotate-180" /> Back to shelf
+  if (!book.pdf_url) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#1a2820] p-10 text-center">
+        <BookOpen className="text-[#d48b55]" size={48} strokeWidth={1.4} />
+        <p className="mt-5 font-serif text-2xl font-bold text-[#fffaf1]">{book.title}</p>
+        <p className="mt-2 max-w-md text-[#c8d4c7]">
+          This book's pages are being prepared. The full reader will open here once the PDF is uploaded.
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-6 rounded-full bg-[#d48b55] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#bd7443]"
+        >
+          Back to library
         </button>
-        <div className="flex items-center gap-2">
-          {book.audio_url && (
-            <button
-              onClick={() => setShowAudio(!showAudio)}
-              className="flex items-center gap-1.5 rounded-full border border-[#c6b18c] px-3 py-2 text-xs font-bold text-[#53685b] transition hover:bg-[#eadfc9]"
-            >
-              <Volume2 size={15} /> Audio
-            </button>
-          )}
-          {user && (
-            <button
-              onClick={toggleBookmark}
-              className="flex items-center gap-1.5 rounded-full border border-[#c6b18c] px-3 py-2 text-xs font-bold text-[#53685b] transition hover:bg-[#eadfc9]"
-            >
-              {isBookmarked ? <BookmarkCheck size={15} className="text-[#315b4a]" /> : <Bookmark size={15} />}
-              {isBookmarked ? 'Saved' : 'Save'}
-            </button>
-          )}
-          {user && (
-            <button
-              onClick={toggleLike}
-              className="flex items-center gap-1.5 rounded-full border border-[#c6b18c] px-3 py-2 text-xs font-bold text-[#53685b] transition hover:bg-[#eadfc9]"
-            >
-              <Heart size={15} className={liked ? 'fill-red-500 text-red-500' : ''} />
-              {likeCount > 0 ? likeCount : 'Like'}
-            </button>
-          )}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <FlipbookReader
+        pdfUrl={book.pdf_url}
+        title={book.title}
+        subtitle={book.subtitle ?? undefined}
+        startPage={progress?.last_page ? Math.max(0, progress.last_page - 1) : 0}
+        onPageChange={handlePageChange}
+        onClose={onClose}
+      />
+
+      {/* Floating side panel for book features (bookmark, like, audio, treasure) */}
+      <div className="fixed right-3 top-16 z-[110] flex flex-col gap-2 sm:right-4">
+        {book.audio_url && (
           <button
-            onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 rounded-full border border-[#c6b18c] px-3 py-2 text-xs font-bold text-[#53685b] transition hover:bg-[#eadfc9]"
+            onClick={() => setShowAudio(!showAudio)}
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition ${
+              showAudio ? 'bg-[#315b4a] text-white' : 'bg-[#fffaf1] text-[#53685b] hover:bg-[#eadfc9]'
+            }`}
+            aria-label="Toggle audio"
+            title="Audio"
           >
-            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            {showAudio ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
-        </div>
+        )}
+        {user && (
+          <button
+            onClick={toggleBookmark}
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition ${
+              isBookmarked ? 'bg-[#315b4a] text-white' : 'bg-[#fffaf1] text-[#53685b] hover:bg-[#eadfc9]'
+            }`}
+            aria-label="Toggle bookmark"
+            title={isBookmarked ? 'Bookmarked' : 'Bookmark'}
+          >
+            {isBookmarked ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
+          </button>
+        )}
+        {user && (
+          <button
+            onClick={toggleLike}
+            className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition ${
+              liked ? 'bg-red-500 text-white' : 'bg-[#fffaf1] text-[#53685b] hover:bg-[#eadfc9]'
+            }`}
+            aria-label="Toggle like"
+            title="Like"
+          >
+            <Heart size={18} className={liked ? 'fill-white' : ''} />
+          </button>
+        )}
       </div>
 
-      {/* Title bar */}
-      <div className="mt-4 flex items-center justify-between">
-        <div>
-          <h2 className="font-serif text-2xl font-bold text-[#294236]">{book.title}</h2>
-          {book.subtitle && <p className="mt-0.5 text-sm text-[#53685b]">{book.subtitle}</p>}
-        </div>
-        <span className="text-sm font-bold text-[#53685b]">
-          Page {pageNum} <span className="text-[#a2673e]">/</span> {totalPages}
-        </span>
-      </div>
-
-      {/* Audio player */}
+      {/* Audio player bar */}
       {showAudio && book.audio_url && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-[#d8c7a8] bg-[#f6e7bf]/40 p-3">
+        <div className="fixed bottom-3 left-1/2 z-[110] flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-[#d8c7a8] bg-[#fffaf1] p-3 shadow-xl">
           <button
             onClick={toggleAudio}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-[#315b4a] text-white transition hover:bg-[#294236]"
@@ -184,73 +170,30 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
             {audioPlaying ? <Pause size={18} /> : <Play size={18} fill="white" />}
           </button>
           <span className="text-sm font-semibold text-[#53685b]">Listen along as you read</span>
-          <audio
-            ref={audioRef}
-            src={book.audio_url}
-            onEnded={() => setAudioPlaying(false)}
-            className="hidden"
-          />
+          <audio ref={audioRef} src={book.audio_url} onEnded={() => setAudioPlaying(false)} className="hidden" />
         </div>
       )}
 
-      {/* Flipbook reader */}
-      <div className="mt-4 flex overflow-hidden rounded-2xl bg-[#e8dfcb]" style={{ height: isFullscreen ? 'calc(100vh - 160px)' : '70vh' }}>
-        {book.pdf_url ? (
-          <FlipbookReader
-            pdfUrl={book.pdf_url}
-            title={book.title}
-            subtitle={book.subtitle ?? undefined}
-            startPage={progress?.last_page ? Math.max(0, progress.last_page - 1) : 0}
-            onPageChange={handlePageChange}
-            onClose={onClose}
-          />
-        ) : (
-          <div className="flex h-full min-h-[60vh] flex-col items-center justify-center p-10 text-center">
-            <BookOpen className="text-[#a2673e]" size={48} strokeWidth={1.4} />
-            <p className="mt-5 font-serif text-2xl font-bold text-[#294236]">{book.title}</p>
-            <p className="mt-2 max-w-md text-[#53685b]">
-              This book's pages are being prepared. The full reader will open here once the PDF is uploaded.
-            </p>
-          </div>
-        )}
-      </div>
-
       {/* Treasure notification */}
       {isTreasurePage && !showTreasure && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border-2 border-[#d48b55] bg-[#f6e7bf] p-4">
-          <Sparkles className="text-[#a2673e]" size={24} />
+        <div className="fixed bottom-3 left-1/2 z-[110] flex max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl border-2 border-[#d48b55] bg-[#f6e7bf] p-4 shadow-xl">
+          <Sparkles className="shrink-0 text-[#a2673e]" size={24} />
           <div className="flex-1">
-            <p className="font-serif text-lg font-bold text-[#294236]">You found a treasure clue!</p>
-            <p className="text-sm text-[#53685b]">Look closely at this page — there's something hidden here.</p>
+            <p className="font-serif text-base font-bold text-[#294236]">You found a treasure clue!</p>
+            <p className="text-xs text-[#53685b]">Look closely at this page.</p>
           </div>
           {user ? (
             <button
               onClick={() => setShowTreasure(true)}
-              className="flex items-center gap-2 rounded-full bg-[#d48b55] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#bd7443]"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#d48b55] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#bd7443]"
             >
-              <Gift size={16} /> Claim treasure
+              <Gift size={14} /> Claim
             </button>
           ) : (
-            <span className="text-xs font-semibold text-[#a2673e]">Sign in to claim</span>
+            <span className="shrink-0 text-xs font-semibold text-[#a2673e]">Sign in to claim</span>
           )}
         </div>
       )}
-
-      {/* Bottom controls */}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-[#53685b]">
-            {percentRead}% read
-          </span>
-          <div className="h-2 w-32 overflow-hidden rounded-full bg-[#e8dfcb]">
-            <div className="h-full rounded-full bg-[#d48b55] transition-all" style={{ width: `${percentRead}%` }} />
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#53685b]">
-          <Sparkles size={14} className="text-[#a2673e]" />
-          Use arrow keys, swipe, or tap page edges to navigate
-        </div>
-      </div>
 
       {/* Treasure claim modal */}
       {showTreasure && (
@@ -260,7 +203,7 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
           onClose={() => setShowTreasure(false)}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -287,7 +230,7 @@ function TreasureModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md rounded-3xl bg-[#fffaf1] p-8 shadow-2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
