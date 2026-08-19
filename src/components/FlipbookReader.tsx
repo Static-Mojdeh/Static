@@ -16,6 +16,7 @@ import {
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import { PageFlip } from 'page-flip';
 import type { PageFlipInstance, PageFlipOptions } from 'page-flip';
+import 'page-flip/src/Style/stPageFlip.css';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
