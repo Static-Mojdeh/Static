@@ -194,7 +194,7 @@ export default function BookReader({ book, onClose }: { book: Book; onClose: () 
       )}
 
       {/* Flipbook reader */}
-      <div className="mt-4 overflow-hidden rounded-2xl bg-[#e8dfcb]" style={{ height: isFullscreen ? 'calc(100vh - 160px)' : '70vh' }}>
+      <div className="mt-4 flex overflow-hidden rounded-2xl bg-[#e8dfcb]" style={{ height: isFullscreen ? 'calc(100vh - 160px)' : '70vh' }}>
         {book.pdf_url ? (
           <FlipbookReader
             pdfUrl={book.pdf_url}

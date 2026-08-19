@@ -52,6 +52,7 @@ export default function FlipbookReader({
   onClose,
 }: FlipbookReaderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const readerAreaRef = useRef<HTMLDivElement | null>(null);
   const flipRef = useRef<PageFlipInstance | null>(null);
   const htmlContainerRef = useRef<HTMLDivElement | null>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -59,7 +60,7 @@ export default function FlipbookReader({
   const pageCacheRef = useRef<Map<number, RenderedPage>>(new Map());
   const renderInFlightRef = useRef<Set<number>>(new Set());
   const totalPagesRef = useRef(0);
-  const pageAspectRef = useRef<number>(1);
+  const pageAspectRef = useRef<number>(0.707);
   const isZoomedRef = useRef(false);
   const pendingPageRef = useRef(startPage);
 
@@ -82,12 +83,13 @@ export default function FlipbookReader({
   });
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
 
+  // ── Layout: measure the READER AREA (not the whole container which includes toolbar) ──
   const computeLayout = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return { width: 400, height: 600, portrait: false };
-    const rect = container.getBoundingClientRect();
-    const portrait = rect.width < 768;
-    const padding = 32;
+    const area = readerAreaRef.current;
+    if (!area) return { width: 400, height: 600, portrait: true };
+    const rect = area.getBoundingClientRect();
+    const portrait = rect.width < 700;
+    const padding = 24;
     const availW = rect.width - padding;
     const availH = rect.height - padding;
     const aspect = pageAspectRef.current || 0.707;
@@ -115,16 +117,14 @@ export default function FlipbookReader({
     return { width: Math.round(pageW), height: Math.round(pageH), portrait };
   }, []);
 
+  // ── Page rendering via PDF.js ──
   const renderPage = useCallback(
     async (pageNum: number, highRes = false): Promise<RenderedPage | null> => {
       const doc = pdfDocRef.current;
       if (!doc) return null;
       const cached = pageCacheRef.current.get(pageNum);
       if (cached && !highRes) return cached;
-
-      if (renderInFlightRef.current.has(pageNum)) {
-        return null;
-      }
+      if (renderInFlightRef.current.has(pageNum)) return null;
 
       renderInFlightRef.current.add(pageNum);
       try {
@@ -137,8 +137,6 @@ export default function FlipbookReader({
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
 
         await page.render({
           canvasContext: ctx,
@@ -180,18 +178,35 @@ export default function FlipbookReader({
       for (let i = 1; i <= PREFETCH_RANGE; i++) {
         const next = pageNum + i;
         const prev = pageNum - i;
-        if (next < total && !pageCacheRef.current.has(next)) {
-          tasks.push(renderPage(next));
-        }
-        if (prev >= 0 && !pageCacheRef.current.has(prev)) {
-          tasks.push(renderPage(prev));
-        }
+        if (next < total && !pageCacheRef.current.has(next)) tasks.push(renderPage(next));
+        if (prev >= 0 && !pageCacheRef.current.has(prev)) tasks.push(renderPage(prev));
       }
       await Promise.all(tasks);
     },
     [renderPage],
   );
 
+  // ── Update a page's DOM element with rendered image ──
+  // MUST be defined before initFlipbook which uses it
+  const updatePageDOM = useCallback((pageNum: number, rendered: RenderedPage) => {
+    const container = htmlContainerRef.current;
+    if (!container) return;
+    const pageEl = container.querySelector(`.stf__item[data-page-num="${pageNum}"]`);
+    if (!pageEl) return;
+    pageEl.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = rendered.dataUrl;
+    img.alt = `Page ${pageNum + 1}`;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.style.userSelect = 'none';
+    img.style.pointerEvents = 'none';
+    img.draggable = false;
+    pageEl.appendChild(img);
+  }, []);
+
+  // ── Initialize StPageFlip ──
   const initFlipbook = useCallback(async () => {
     if (!htmlContainerRef.current) return;
     const { width, height, portrait } = computeLayout();
@@ -215,6 +230,7 @@ export default function FlipbookReader({
     const pf = new PageFlip(htmlContainerRef.current, options);
     flipRef.current = pf as unknown as PageFlipInstance;
 
+    // Create placeholder page elements
     const pageElements: HTMLElement[] = [];
     for (let i = 0; i < totalPagesRef.current; i++) {
       const placeholder = document.createElement('div');
@@ -231,17 +247,18 @@ export default function FlipbookReader({
       spinner.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;';
       spinner.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#a2673e" stroke-width="2" xmlns="http://www.w3.org/2000/svg"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>';
       placeholder.appendChild(spinner);
-
       pageElements.push(placeholder);
     }
 
     (pf as unknown as PageFlipInstance).loadFromHTML(pageElements);
+
     (pf as unknown as PageFlipInstance).on('flip', (e: unknown) => {
       const ev = e as { data: number };
       setCurrentPage(ev.data);
       onPageChange?.(ev.data + 1, totalPagesRef.current);
       prefetchPages(ev.data);
     });
+
     (pf as unknown as PageFlipInstance).on('changeOrientation', (e: unknown) => {
       const ev = e as { data: 'portrait' | 'landscape' };
       setIsPortrait(ev.data === 'portrait');
@@ -249,6 +266,7 @@ export default function FlipbookReader({
 
     setBookReady(true);
 
+    // Render the start page and nearby pages
     const start = pendingPageRef.current;
     for (let i = Math.max(0, start - 1); i <= Math.min(totalPagesRef.current - 1, start + PREFETCH_RANGE); i++) {
       const rendered = await renderPage(i);
@@ -262,24 +280,7 @@ export default function FlipbookReader({
     }
   }, [computeLayout, renderPage, prefetchPages, onPageChange, updatePageDOM]);
 
-  const updatePageDOM = useCallback((pageNum: number, rendered: RenderedPage) => {
-    const container = htmlContainerRef.current;
-    if (!container) return;
-    const pageEl = container.querySelector(`.stf__item[data-page-num="${pageNum}"]`);
-    if (!pageEl) return;
-    pageEl.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = rendered.dataUrl;
-    img.alt = `Page ${pageNum + 1}`;
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'contain';
-    img.style.userSelect = 'none';
-    img.style.pointerEvents = 'none';
-    img.draggable = false;
-    pageEl.appendChild(img);
-  }, []);
-
+  // ── Load PDF and initialize ──
   const loadPdf = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -303,7 +304,6 @@ export default function FlipbookReader({
 
       await initFlipbook();
       setLoading(false);
-
       prefetchPages(pendingPageRef.current);
     } catch (err) {
       console.error('PDF load error:', err);
@@ -312,6 +312,7 @@ export default function FlipbookReader({
     }
   }, [pdfUrl, initFlipbook, prefetchPages]);
 
+  // ── Load on mount, cleanup on unmount ──
   useEffect(() => {
     loadPdf();
     return () => {
@@ -329,29 +330,30 @@ export default function FlipbookReader({
     };
   }, [loadPdf]);
 
+  // ── Resize handling via ResizeObserver on the reader area ──
   const handleResize = useCallback(() => {
     if (!flipRef.current || !bookReady) return;
     const { portrait } = computeLayout();
     setIsPortrait(portrait);
-    try {
-      flipRef.current.update();
-    } catch { /* noop */ }
+    try { flipRef.current.update(); } catch { /* noop */ }
   }, [computeLayout, bookReady]);
 
   useEffect(() => {
-    if (!bookReady) return;
+    const area = readerAreaRef.current;
+    if (!area || !bookReady) return;
     let resizeTimer: ReturnType<typeof setTimeout>;
-    const handler = () => {
+    const observer = new ResizeObserver(() => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(handleResize, 200);
-    };
-    window.addEventListener('resize', handler);
+      resizeTimer = setTimeout(handleResize, 150);
+    });
+    observer.observe(area);
     return () => {
-      window.removeEventListener('resize', handler);
+      observer.disconnect();
       clearTimeout(resizeTimer);
     };
   }, [handleResize, bookReady]);
 
+  // ── Fullscreen ──
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen?.();
@@ -368,6 +370,7 @@ export default function FlipbookReader({
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
+  // ── Navigation ──
   const goPrev = useCallback(() => {
     if (isZoomedRef.current) return;
     flipRef.current?.flipPrev();
@@ -384,19 +387,18 @@ export default function FlipbookReader({
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
       if (e.key === 'ArrowLeft') goPrev();
       else if (e.key === 'ArrowRight') goNext();
-      else if (e.key === 'Escape') {
-        if (document.fullscreenElement) toggleFullscreen();
-      }
+      else if (e.key === 'Escape' && document.fullscreenElement) toggleFullscreen();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [goPrev, goNext, toggleFullscreen]);
 
+  // ── Zoom & Pan ──
   useEffect(() => {
     isZoomedRef.current = panMode;
   }, [panMode]);
 
-  const handleZoomIn = useCallback(async () => {
+  const handleZoomIn = useCallback(() => {
     setZoom((z) => {
       const next = Math.min(MAX_ZOOM, z + ZOOM_STEP);
       if (next > 100) setPanMode(true);
@@ -422,11 +424,8 @@ export default function FlipbookReader({
   }, []);
 
   const handleDoubleClick = useCallback(() => {
-    if (panMode) {
-      handleFit();
-    } else {
-      handleZoomIn();
-    }
+    if (panMode) handleFit();
+    else handleZoomIn();
   }, [panMode, handleZoomIn, handleFit]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -467,12 +466,12 @@ export default function FlipbookReader({
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col bg-[#fffaf1] transition-all ${
+      className={`flex h-full flex-col bg-[#fffaf1] transition-all ${
         isFullscreen ? 'fixed inset-0 z-50' : ''
       }`}
     >
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d8c7a8] bg-[#fffaf1] px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#d8c7a8] bg-[#fffaf1] px-4 py-2.5">
         <div className="flex items-center gap-3">
           <button
             onClick={onClose}
@@ -546,8 +545,9 @@ export default function FlipbookReader({
         </div>
       </div>
 
-      {/* Reader area */}
+      {/* Reader area — this is what we measure for layout */}
       <div
+        ref={readerAreaRef}
         className="relative flex-1 overflow-hidden bg-[#e8dfcb]"
         onWheel={handleWheel}
         onDoubleClick={handleDoubleClick}
@@ -592,6 +592,7 @@ export default function FlipbookReader({
           </div>
         )}
 
+        {/* The flipbook container — fills the reader area */}
         <div
           className="flex h-full w-full items-center justify-center"
           style={{
@@ -602,7 +603,7 @@ export default function FlipbookReader({
         >
           <div
             ref={htmlContainerRef}
-            className="flipbook-container"
+            className="flipbook-container h-full w-full"
             style={{ touchAction: panMode ? 'none' : 'manipulation' }}
           />
         </div>
@@ -610,7 +611,7 @@ export default function FlipbookReader({
 
       {/* Mobile bottom hint */}
       {bookReady && !loading && !error && (
-        <div className="border-t border-[#d8c7a8] bg-[#fffaf1] px-4 py-2 text-center lg:hidden">
+        <div className="shrink-0 border-t border-[#d8c7a8] bg-[#fffaf1] px-4 py-2 text-center lg:hidden">
           <p className="text-xs font-semibold text-[#53685b]">
             {isPortrait ? 'Swipe to turn pages · Pinch to zoom' : 'Tap page edges to turn'}
           </p>
