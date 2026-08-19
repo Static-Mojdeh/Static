@@ -334,8 +334,14 @@ export default function FlipbookReader({
   }, []);
 
   // ── Navigation ──
-  const goPrev = useCallback(() => { if (!isZoomedRef.current) flipRef.current?.flipPrev(); }, []);
-  const goNext = useCallback(() => { if (!isZoomedRef.current) flipRef.current?.flipNext(); }, []);
+  const goPrev = useCallback(() => {
+    if (panMode) { setPanMode(false); setPanOffset({ x: 0, y: 0 }); setZoom(100); }
+    flipRef.current?.flipPrev();
+  }, [panMode]);
+  const goNext = useCallback(() => {
+    if (panMode) { setPanMode(false); setPanOffset({ x: 0, y: 0 }); setZoom(100); }
+    flipRef.current?.flipNext();
+  }, [panMode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
